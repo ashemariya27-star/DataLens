@@ -1,0 +1,44 @@
+node_modules/
+frontend/dist/
+frontend/.vite/
+backend/__pycache__/
+backend/**/*.pyc
+backend/.env
+backend/uploads/
+backend/datalens.db
+.venv/
+venv/
+__pycache__/
+.DS_Store
+# Environment variables and secrets
+.env
+**/.env
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploaded user files
+**/uploads/
+
+# Python environments
+venv/
+.venv/
+__pycache__/
+*.pyc
+# Secrets
+.env
+**/.env
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploaded files
+**/uploads/
+
+# Python environments
+**/venv/
+**/.venv/

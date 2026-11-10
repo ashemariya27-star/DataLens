@@ -1,9 +1,13 @@
 import os
+import re
 import uuid
 from datetime import date, datetime
+from pathlib import Path
+from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
@@ -14,10 +18,10 @@ from app.seed import seed_demo_data
 from app.schemas import (
     DashboardSummary,
     DatasetRead,
-    MaterialCreate,
     MaterialRead,
     ReminderCreate,
     ReminderRead,
+    ReminderUpdate,
     ScheduleCreate,
     ScheduleRead,
     SubjectCreate,
@@ -26,6 +30,9 @@ from app.schemas import (
     TaskRead,
 )
 from app.services.analytics import analyze_uploaded_file
+from app.services.export_safety import has_duplicate_file_reference, resolve_cleaned_file, stream_spreadsheet_safe_csv
+from app.services.reports import build_dataset_report
+from app.services.reminder_updates import update_reminder_record
 
 app = FastAPI(title="DataLens API", version="1.0.0")
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
@@ -164,7 +171,12 @@ def list_tasks(db: Session = Depends(get_db)):
 
 @app.post("/api/tasks", response_model=TaskRead)
 def create_task(payload: TaskCreate, db: Session = Depends(get_db)):
-    task = Task(**payload.model_dump())
+    task_data = payload.model_dump()
+    # assigned_date is optional in the request schema but required by the table.
+    # Use the existing model's intended current-date behavior when it is blank.
+    if task_data["assigned_date"] is None:
+        task_data["assigned_date"] = date.today()
+    task = Task(**task_data)
     if payload.status == "Completed":
         task.completed_at = datetime.utcnow()
     db.add(task)
@@ -180,6 +192,10 @@ def update_task(task_id: int, payload: TaskCreate, db: Session = Depends(get_db)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     for key, value in payload.model_dump().items():
+        # The stored assigned_date column is non-nullable; a blank optional
+        # value means leave the current assigned date unchanged.
+        if key == "assigned_date" and value is None:
+            continue
         setattr(task, key, value)
     if payload.status == "Completed" and task.completed_at is None:
         task.completed_at = datetime.utcnow()
@@ -266,8 +282,15 @@ def list_materials(db: Session = Depends(get_db)):
 
 
 @app.post("/api/materials", response_model=MaterialRead)
-def create_material(payload: MaterialCreate, db: Session = Depends(get_db), file: UploadFile = File(default=None)):
-    subject = db.query(Subject).filter(Subject.id == payload.subject_id).first()
+def create_material(
+    title: str = Form(...),
+    subject_id: int = Form(...),
+    unit: str = Form(...),
+    description: str | None = Form(default=None),
+    file: UploadFile = File(default=None),
+    db: Session = Depends(get_db),
+):
+    subject = db.query(Subject).filter(Subject.id == subject_id).first()
     if not subject:
         raise HTTPException(status_code=404, detail="Subject not found")
     if not file or not file.filename:
@@ -287,10 +310,10 @@ def create_material(payload: MaterialCreate, db: Session = Depends(get_db), file
         handle.write(file_bytes)
 
     material = StudyMaterial(
-        title=payload.title,
-        subject_id=payload.subject_id,
-        unit=payload.unit,
-        description=payload.description,
+        title=title,
+        subject_id=subject_id,
+        unit=unit,
+        description=description,
         file_name=file.filename,
         file_path=f"/uploads/{safe_name}",
         mime_type=file.content_type or "application/octet-stream",
@@ -332,6 +355,11 @@ def create_reminder(payload: ReminderCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(reminder)
     return reminder
+
+
+@app.put("/api/reminders/{reminder_id}", response_model=ReminderRead)
+def update_reminder(reminder_id: int, payload: ReminderUpdate, db: Session = Depends(get_db)):
+    return update_reminder_record(db, reminder_id, payload, Reminder)
 
 
 @app.patch("/api/reminders/{reminder_id}/complete")
@@ -380,6 +408,63 @@ def upload_dataset(file: UploadFile = File(...), db: Session = Depends(get_db)):
     db.commit()
     db.refresh(dataset_record)
     return dataset_record
+
+
+def _dataset_download_name(filename: str, suffix: str) -> str:
+    stem = Path(Path(filename).name).stem
+    safe_stem = re.sub(r"[^\w.-]+", "_", stem, flags=re.UNICODE).strip("._- ") or "dataset"
+    return f"{safe_stem}_{suffix}"
+
+
+@app.get("/api/datasets/{dataset_id}/cleaned.csv")
+def download_cleaned_dataset(dataset_id: int, db: Session = Depends(get_db)):
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    if not dataset.cleaned_csv_path:
+        raise HTTPException(status_code=404, detail="The cleaned CSV is not available for this dataset.")
+
+    cleaned_path = resolve_cleaned_file(dataset.cleaned_csv_path, UPLOAD_DIR)
+    if cleaned_path is None:
+        raise HTTPException(status_code=404, detail="The cleaned CSV is missing or unavailable.") from None
+
+    references = db.query(Dataset.id, Dataset.cleaned_csv_path).filter(
+        Dataset.cleaned_csv_path == dataset.cleaned_csv_path,
+    ).all()
+    if has_duplicate_file_reference(dataset_id, dataset.cleaned_csv_path, references):
+        raise HTTPException(status_code=404, detail="The cleaned CSV is missing or unavailable.")
+
+    try:
+        source = cleaned_path.open("r", encoding="utf-8-sig", newline="")
+    except OSError:
+        raise HTTPException(status_code=404, detail="The cleaned CSV is missing or unavailable.") from None
+
+    filename = _dataset_download_name(dataset.filename, "cleaned.csv")
+    ascii_filename = re.sub(r"[^A-Za-z0-9._-]+", "_", filename).strip("._-") or "dataset_cleaned.csv"
+    return StreamingResponse(
+        stream_spreadsheet_safe_csv(source),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{quote(filename)}"
+        },
+    )
+
+
+@app.get("/api/datasets/{dataset_id}/report.pdf")
+def download_dataset_report(dataset_id: int, db: Session = Depends(get_db)):
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    content = build_dataset_report(dataset)
+    filename = _dataset_download_name(dataset.filename, "report.pdf")
+    ascii_filename = re.sub(r"[^A-Za-z0-9._-]+", "_", filename).strip("._-") or "dataset_report.pdf"
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{quote(filename)}"
+        },
+    )
 
 
 @app.delete("/api/datasets/{dataset_id}")

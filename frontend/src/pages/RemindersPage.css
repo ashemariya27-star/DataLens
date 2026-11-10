@@ -1,0 +1,36 @@
+.reminder-status-badge {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  margin-top: 7px;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: .7rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.reminder-status-pending {
+  color: #efc477;
+  background: rgba(225, 174, 94, .12);
+  border-color: rgba(225, 174, 94, .25);
+}
+
+.reminder-status-completed {
+  color: #75d5b1;
+  background: rgba(62, 186, 142, .12);
+  border-color: rgba(62, 186, 142, .27);
+}
+
+.workspace-light .reminder-status-pending {
+  color: #8b641d;
+  background: #fff6df;
+  border-color: #f2dfa9;
+}
+
+.workspace-light .reminder-status-completed {
+  color: #207d64;
+  background: #e9f8f2;
+  border-color: #c5eadb;
+}

@@ -20,10 +20,10 @@ export default function SettingsPage() {
               <span className="settings-icon"><UserCircle size={18} /></span>
               <div>
                 <strong>Tutor profile</strong>
-                <small>Single-tutor prototype</small>
+                <small>Single-user prototype</small>
               </div>
             </div>
-            <p>This MVP is intentionally designed for a single tutor workspace without authentication.</p>
+            <p>This prototype has one shared workspace. Account sign-in and separate user workspaces are not available yet.</p>
           </div>
         </section>
 
@@ -36,23 +36,20 @@ export default function SettingsPage() {
               <span className="settings-icon"><Bell size={18} /></span>
               <div>
                 <strong>Notifications</strong>
-                <small>In-app reminders and browser alerts</small>
+                <small>Future feature</small>
               </div>
             </div>
-            <label className="toggle-row">
-              <input type="checkbox" defaultChecked />
-              Enable reminder notifications
-            </label>
+            <p>Notification preferences are not configurable in this prototype.</p>
           </div>
           <div className="settings-card">
             <div className="settings-header">
               <span className="settings-icon"><Palette size={18} /></span>
               <div>
                 <strong>Theme</strong>
-                <small>Professional navy palette</small>
+                <small>Dark and light themes</small>
               </div>
             </div>
-            <p>Current visual theme uses the DataLens navy, lavender, and mint palette for a clean academic interface.</p>
+            <p>Use the theme control in the top bar to switch between dark and light appearance.</p>
           </div>
         </section>
       </div>

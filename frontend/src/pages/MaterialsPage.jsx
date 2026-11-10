@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Download, FileText, Trash2 } from 'lucide-react';
-import { createMaterial, deleteMaterial, getMaterials, getSubjects } from '../api';
+import { Link } from 'react-router-dom';
+import { createMaterial, deleteMaterial, downloadMaterial, getApiErrorMessage, getMaterials, getSubjects } from '../api';
 
 const emptyForm = {
   title: '',
@@ -14,11 +15,27 @@ export default function MaterialsPage() {
   const [subjects, setSubjects] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [file, setFile] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [busyAction, setBusyAction] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const titleInput = useRef(null);
+  const fileInput = useRef(null);
 
   const refresh = async () => {
-    const [materialData, subjectData] = await Promise.all([getMaterials(), getSubjects()]);
-    setMaterials(materialData);
-    setSubjects(subjectData);
+    setIsLoading(true);
+    setError('');
+    try {
+      const [materialData, subjectData] = await Promise.all([getMaterials(), getSubjects()]);
+      setMaterials(materialData);
+      setSubjects(subjectData);
+      setHasLoaded(true);
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError, 'Study materials could not be loaded.'));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -27,26 +44,67 @@ export default function MaterialsPage() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    if (!file || !form.title || !form.subject_id || !form.unit) {
+    if (busyAction) return;
+    setError('');
+    setSuccess('');
+    if (!file || !form.title.trim() || !form.subject_id || !form.unit.trim()) {
+      setError('Enter a title, subject, and unit, then choose a PDF or DOCX file.');
       return;
     }
 
     const formData = new FormData();
-    formData.append('title', form.title);
+    formData.append('title', form.title.trim());
     formData.append('subject_id', String(form.subject_id));
-    formData.append('unit', form.unit);
+    formData.append('unit', form.unit.trim());
     formData.append('description', form.description || '');
     formData.append('file', file);
 
-    await createMaterial(formData);
-    setForm(emptyForm);
-    setFile(null);
-    refresh();
+    setError('');
+    setSuccess('');
+    setBusyAction(true);
+    try {
+      await createMaterial(formData);
+      setForm(emptyForm);
+      setFile(null);
+      if (fileInput.current) fileInput.current.value = '';
+      setSuccess('Study material uploaded.');
+      await refresh();
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError, 'The study material could not be uploaded.'));
+    } finally {
+      setBusyAction(false);
+    }
   };
 
   const handleDelete = async (id) => {
-    await deleteMaterial(id);
-    refresh();
+    if (busyAction || !window.confirm('Delete this study material and its uploaded file?')) return;
+    setError('');
+    setSuccess('');
+    setBusyAction(true);
+    try {
+      await deleteMaterial(id);
+      setSuccess('Study material deleted.');
+      await refresh();
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError, 'The study material could not be deleted.'));
+    } finally {
+      setBusyAction(false);
+    }
+  };
+
+  const handleDownload = async (material) => {
+    if (busyAction) return;
+    setError('');
+    setSuccess('');
+    setBusyAction(true);
+    try {
+      await downloadMaterial(material.file_path, material.file_name);
+      setSuccess(`Download started for ${material.file_name}.`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : getApiErrorMessage(requestError));
+    } finally {
+      setBusyAction(false);
+    }
   };
 
   return (
@@ -59,6 +117,8 @@ export default function MaterialsPage() {
       </div>
 
       <div className="content-grid two-col">
+        {error && <p className="error-panel full-width" role="alert">{error}</p>}
+        {success && <p className="muted-pill full-width" role="status">{success}</p>}
         <section className="panel">
           <div className="section-heading">
             <h2>Upload a new file</h2>
@@ -66,11 +126,11 @@ export default function MaterialsPage() {
           <form className="form-grid" onSubmit={handleSubmit}>
             <label>
               Title
-              <input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} />
+              <input ref={titleInput} required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} />
             </label>
             <label>
               Subject
-              <select value={form.subject_id} onChange={(event) => setForm({ ...form, subject_id: event.target.value })}>
+              <select required value={form.subject_id} onChange={(event) => setForm({ ...form, subject_id: event.target.value })}>
                 <option value="">Select</option>
                 {subjects.map((subject) => (
                   <option key={subject.id} value={subject.id}>{subject.name}</option>
@@ -79,7 +139,7 @@ export default function MaterialsPage() {
             </label>
             <label>
               Unit or topic
-              <input value={form.unit} onChange={(event) => setForm({ ...form, unit: event.target.value })} />
+              <input required value={form.unit} onChange={(event) => setForm({ ...form, unit: event.target.value })} />
             </label>
             <label className="full-width">
               Description
@@ -87,10 +147,10 @@ export default function MaterialsPage() {
             </label>
             <label className="full-width">
               File
-              <input type="file" accept=".pdf,.docx" onChange={(event) => setFile(event.target.files[0])} />
+              <input ref={fileInput} required type="file" accept=".pdf,.docx" disabled={busyAction} onChange={(event) => setFile(event.target.files[0])} />
             </label>
             <div className="button-row full-width">
-              <button type="submit" className="primary-button">Upload material</button>
+              <button type="submit" className="primary-button" disabled={busyAction}>{busyAction ? 'Working…' : 'Upload material'}</button>
             </div>
           </form>
         </section>
@@ -100,7 +160,10 @@ export default function MaterialsPage() {
             <h2>Uploaded library</h2>
           </div>
           <div className="resource-list">
-            {materials.map((material) => (
+            {isLoading && <div className="loading-panel" role="status">Loading study materials…</div>}
+            {!isLoading && error && !hasLoaded && <button type="button" className="secondary-button" onClick={refresh}>Retry loading materials</button>}
+            {!isLoading && hasLoaded && materials.length === 0 && <div className="empty-state"><p>No study materials yet. Upload a PDF or DOCX file to build your library.</p>{subjects.length === 0 ? <Link className="secondary-button" to="/subjects">Add a subject first</Link> : <button type="button" className="primary-button" onClick={() => titleInput.current?.focus()}>Upload your first material</button>}</div>}
+            {!isLoading && materials.map((material) => (
               <div className="resource-card" key={material.id}>
                 <div className="resource-icon"><FileText size={18} /></div>
                 <div className="resource-body">
@@ -109,8 +172,8 @@ export default function MaterialsPage() {
                   <small>{material.file_name}</small>
                 </div>
                 <div className="resource-actions">
-                  <a href={material.file_path} target="_blank" rel="noreferrer"><Download size={16} /></a>
-                  <button type="button" className="danger" onClick={() => handleDelete(material.id)}><Trash2 size={16} /></button>
+                  <button type="button" aria-label={`Download ${material.file_name}`} title="Download material" disabled={busyAction} onClick={() => handleDownload(material)}><Download size={16} /></button>
+                  <button type="button" className="danger" aria-label={`Delete ${material.title}`} title="Delete material" disabled={busyAction} onClick={() => handleDelete(material.id)}><Trash2 size={16} /></button>
                 </div>
               </div>
             ))}

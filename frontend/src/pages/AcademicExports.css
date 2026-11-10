@@ -1,0 +1,3 @@
+.page-header.academic-export-header{gap:14px;flex-wrap:wrap}
+.page-header.academic-export-header>.secondary-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;flex:0 0 auto}
+@media(max-width:560px){.page-header.academic-export-header{align-items:flex-start}.page-header.academic-export-header>.secondary-button{max-width:100%}}

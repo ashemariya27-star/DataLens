@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SubjectCreate(BaseModel):
@@ -82,6 +82,22 @@ class ReminderCreate(BaseModel):
     is_completed: bool = False
 
 
+class ReminderUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    description: Optional[str] = None
+    reminder_at: datetime
+    related_type: Optional[str] = Field(default=None, max_length=100)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def title_must_not_be_blank(cls, value: object) -> object:
+        if isinstance(value, str):
+            value = value.strip()
+        if value == "":
+            raise ValueError("Title must not be blank.")
+        return value
+
+
 class ReminderRead(ReminderCreate):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -103,7 +119,6 @@ class DatasetRead(BaseModel):
     stats: dict[str, Any]
     preview: list[dict[str, Any]]
     chart_summary: list[dict[str, Any]]
-    cleaned_csv_path: Optional[str] = None
     uploaded_at: datetime
 
 

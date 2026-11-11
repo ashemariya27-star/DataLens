@@ -96,11 +96,11 @@ export default function TasksPage() {
     });
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this task?')) return;
+  const handleDelete = async (task) => {
+    if (!window.confirm(`Delete task "${task.title}"? This action cannot be undone.`)) return;
     try {
       setError('');
-      await deleteTask(id);
+      await deleteTask(task.id);
       await refresh();
     } catch (requestError) {
       setError(getApiErrorMessage(requestError, 'The task could not be deleted.'));
@@ -239,7 +239,7 @@ export default function TasksPage() {
                 <div className="resource-actions">
                   <button type="button" aria-label={`Mark ${task.title} complete`} title="Mark complete" onClick={() => handleComplete(task.id)}><CheckCircle2 size={16} /></button>
                   <button type="button" aria-label={`Edit ${task.title}`} title="Edit task" onClick={() => handleEdit(task)}><Pencil size={16} /></button>
-                  <button type="button" className="danger" aria-label={`Delete ${task.title}`} title="Delete task" onClick={() => handleDelete(task.id)}><Trash2 size={16} /></button>
+                  <button type="button" className="danger" aria-label={`Delete ${task.title}`} title="Delete task" onClick={() => handleDelete(task)}><Trash2 size={16} /></button>
                 </div>
               </div>
             ))}
